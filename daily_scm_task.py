@@ -3,6 +3,7 @@ import json
 import datetime
 import urllib.request
 import urllib.error
+import sys
 
 SCM_TOPIC_CURRICULUM = [
     {"topic": "The Bullwhip Effect", "source": "MITx MicroMasters & ASCM Dictionary"},
@@ -38,13 +39,13 @@ SCM_TOPIC_CURRICULUM = [
 ]
 
 def create_github_issue(title, body):
-    """Creates a new Issue in the GitHub Repository (No email required)"""
+    """Creates a new Issue in the GitHub Repository"""
     repo = os.environ.get("GITHUB_REPOSITORY")
     token = os.environ.get("GITHUB_TOKEN")
     
     if not repo or not token:
         print("ERROR: GITHUB_REPOSITORY or GITHUB_TOKEN environment variable not set.")
-        return False
+        sys.exit(1)
         
     url = f"https://api.github.com/repos/{repo}/issues"
     headers = {
@@ -62,10 +63,10 @@ def create_github_issue(title, body):
             return True
     except urllib.error.HTTPError as e:
         print(f"Failed to create GitHub Issue: HTTP {e.code} - {e.read().decode('utf-8')}")
-        return False
+        sys.exit(1)
     except Exception as e:
         print(f"Failed to create GitHub Issue: {e}")
-        return False
+        sys.exit(1)
 
 def send_telegram_message(title, content):
     """Optional: Sends message to Telegram Chat if bot token provided"""
@@ -92,8 +93,9 @@ def send_telegram_message(title, content):
 def main():
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if not gemini_key:
-        print("ERROR: GEMINI_API_KEY is missing from environment variables.")
-        return
+        print("CRITICAL ERROR: GEMINI_API_KEY secret is missing in GitHub Repository Secrets.")
+        print("Please go to Settings -> Secrets and variables -> Actions and add GEMINI_API_KEY.")
+        sys.exit(1)
 
     day_of_year = datetime.datetime.now().timetuple().tm_yday
     topic_obj = SCM_TOPIC_CURRICULUM[(day_of_year - 1) % len(SCM_TOPIC_CURRICULUM)]
@@ -136,7 +138,7 @@ Create a clean markdown table comparing options across Order Size, Frequency, Ho
 1. [Input Event] -> 2. [Process Action] -> 3. [Output Result]
 """
 
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
     payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
     req = urllib.request.Request(gemini_url, data=payload, headers={"Content-Type": "application/json"})
 
@@ -147,18 +149,18 @@ Create a clean markdown table comparing options across Order Size, Frequency, Ho
             print("Successfully received content from Gemini API.")
     except urllib.error.HTTPError as e:
         print(f"Gemini API HTTP Error {e.code}: {e.read().decode('utf-8')}")
-        return
+        sys.exit(1)
     except Exception as e:
         print(f"Gemini API Error: {e}")
-        return
+        sys.exit(1)
 
     issue_title = f"[Daily SCM Concept] {topic_obj['topic']}"
     issue_body = f"**Source Reference:** {topic_obj['source']}\n\n" + markdown_content
 
-    # Deliver via GitHub Issue (Default)
+    # Deliver via GitHub Issue
     create_github_issue(issue_title, issue_body)
 
-    # Deliver via Telegram (Optional if credentials provided)
+    # Deliver via Telegram (Optional)
     send_telegram_message(issue_title, markdown_content)
 
 if __name__ == "__main__":
