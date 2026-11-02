@@ -36,31 +36,58 @@ SCM_TOPIC_CURRICULUM = [
     {"topic": "Reverse Logistics & Circular Flows", "source": "ASCM Sustainability Standards"}
 ]
 
-def format_markdown_to_html(md_text):
-    html = md_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    lines = html.split('\n')
-    formatted = []
-    for line in lines:
-        if line.startswith("### "):
-            formatted.append(f'<h3 style="color:#0f766e; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; margin-top: 18px;">{line[4:]}</h3>')
-        elif line.startswith("## "):
-            formatted.append(f'<h2 style="color:#0f172a; margin-top: 20px;">{line[3:]}</h2>')
-        elif line.startswith("- "):
-            formatted.append(f'<li style="margin-bottom: 4px;">{line[2:]}</li>')
-        else:
-            formatted.append(f'<p style="margin: 6px 0;">{line}</p>')
+def create_github_issue(title, body):
+    """Creates a new Issue in the GitHub Repository (No email required)"""
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    token = os.environ.get("GITHUB_TOKEN")
     
-    body = "".join(formatted)
-    body = body.replace("**", "<strong>").replace("**", "建筑")
-    return body
+    if not repo or not token:
+        print("GitHub Repository or Token not available.")
+        return False
+        
+    url = f"https://api.github.com/repos/{repo}/issues"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json"
+    }
+    data = json.dumps({"title": title, "body": body}).encode("utf-8")
+    
+    req = urllib.request.Request(url, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            print("GitHub Issue created successfully!")
+            return True
+    except Exception as e:
+        print(f"Failed to create GitHub Issue: {e}")
+        return False
+
+def send_telegram_message(title, content):
+    """Optional: Sends message to Telegram Chat if bot token provided"""
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not bot_token or not chat_id:
+        return
+        
+    text = f"📘 *{title}*\n\n{content[:3800]}"
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = json.dumps({
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown"
+    }).encode("utf-8")
+    
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req) as resp:
+            print("Telegram message sent successfully!")
+    except Exception as e:
+        print(f"Telegram error: {e}")
 
 def main():
     gemini_key = os.environ.get("GEMINI_API_KEY")
-    resend_key = os.environ.get("RESEND_API_KEY")
-    target_email = os.environ.get("NOTIFICATION_EMAIL")
-
-    if not all([gemini_key, resend_key, target_email]):
-        print("ERROR: Missing required environment variables.")
+    if not gemini_key:
+        print("ERROR: GEMINI_API_KEY is missing.")
         return
 
     day_of_year = datetime.datetime.now().timetuple().tm_yday
@@ -115,43 +142,14 @@ Create a clean markdown table comparing options across Order Size, Frequency, Ho
         print(f"Gemini API Error: {e}")
         return
 
-    content_html = format_markdown_to_html(markdown_content)
+    issue_title = f"[Daily SCM Concept] {topic_obj['topic']}"
+    issue_body = f"**Source Reference:** {topic_obj['source']}\n\n" + markdown_content
 
-    full_email_html = f"""
-    <div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 650px; margin: 0 auto; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
-      <div style="background-color: #0f172a; color: #ffffff; padding: 14px 18px; border-radius: 6px; margin-bottom: 16px;">
-        <span style="font-size: 11px; font-weight: bold; color: #38bdf8; text-transform: uppercase;">ASD-STE100 Technical Daily Concept</span>
-        <h2 style="margin: 4px 0 0 0; font-size: 22px;">{topic_obj['topic']}</h2>
-        <p style="margin: 4px 0 0 0; font-size: 12px; color: #94a3b8;">Source Resource: {topic_obj['source']}</p>
-      </div>
-      <div>{content_html}</div>
-      <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-top: 24px;" />
-      <p style="font-size: 11px; color: #64748b; text-align: center;">Automated Daily Task via GitHub Actions & Gemini API.</p>
-    </div>
-    """
+    # Deliver via GitHub Issue (Default)
+    create_github_issue(issue_title, issue_body)
 
-    resend_url = "https://api.resend.com/emails"
-    email_payload = json.dumps({
-        "from": "Daily SCM Concept <onboarding@resend.dev>",
-        "to": [target_email],
-        "subject": f"[Daily SCM] Concept: {topic_obj['topic']} (ASD-STE100)",
-        "html": full_email_html
-    }).encode("utf-8")
-
-    email_req = urllib.request.Request(
-        resend_url,
-        data=email_payload,
-        headers={
-            "Authorization": f"Bearer {resend_key}",
-            "Content-Type": "application/json"
-        }
-    )
-
-    try:
-        with urllib.request.urlopen(email_req) as resend_resp:
-            print("Email delivered successfully:", resend_resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"Resend Email Error: {e}")
+    # Deliver via Telegram (Optional if credentials provided)
+    send_telegram_message(issue_title, markdown_content)
 
 if __name__ == "__main__":
     main()
