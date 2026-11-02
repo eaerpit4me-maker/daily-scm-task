@@ -92,9 +92,9 @@ def send_telegram_message(title, content):
         print(f"Telegram error: {e}")
 
 def call_gemini_api(gemini_key, prompt):
-    """Calls Gemini API with retries for transient 503/429 errors and fallbacks across supported models."""
-    models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
-    max_retries_per_model = 3
+    """Calls Gemini API with extended exponential retries for transient 503 errors and standard model fallbacks."""
+    models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"]
+    max_retries_per_model = 4
     last_error = None
     
     for model in models:
@@ -115,13 +115,13 @@ def call_gemini_api(gemini_key, prompt):
                 last_error = f"Model {model} returned HTTP {e.code}: {error_msg}"
                 print(last_error)
                 
-                # Retry on temporary high demand / rate limit (503, 429, 500, 504)
+                # Exponential backoff on temporary high demand / rate limit (503, 429, 500, 504)
                 if e.code in (503, 429, 500, 504) and attempt < max_retries_per_model:
-                    wait_time = attempt * 5
-                    print(f"Temporary server issue ({e.code}). Retrying in {wait_time} seconds...")
+                    wait_time = attempt * 8  # Wait 8s, 16s, 24s between retries
+                    print(f"Temporary server issue ({e.code}). Waiting {wait_time}s before retry...")
                     time.sleep(wait_time)
                 else:
-                    break  # Move to next model if permanent error (like 404) or retries exhausted
+                    break  # Move to next fallback model if 404 or max retries exhausted
             except Exception as e:
                 last_error = str(e)
                 print(f"Model {model} failed with error: {e}")
