@@ -1,0 +1,11 @@
+ - name: Set up Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: '3.11'
+
+  - name: Execute Daily SCM Script
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+    run: python daily_scm_task.py
