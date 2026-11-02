@@ -4,6 +4,7 @@ import datetime
 import urllib.request
 import urllib.error
 import sys
+import time
 
 SCM_TOPIC_CURRICULUM = [
     {"topic": "The Bullwhip Effect", "source": "MITx MicroMasters & ASCM Dictionary"},
@@ -91,28 +92,41 @@ def send_telegram_message(title, content):
         print(f"Telegram error: {e}")
 
 def call_gemini_api(gemini_key, prompt):
-    """Calls Gemini API trying active supported models in order of preference"""
-    models = ["gemini-3.8-flash", "gemini-2.5-flash"]
+    """Calls Gemini API with retries for transient 503/429 errors and fallbacks across supported models."""
+    models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    max_retries_per_model = 3
     last_error = None
     
     for model in models:
         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
         payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
-        req = urllib.request.Request(gemini_url, data=payload, headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req) as response:
-                res_json = json.loads(response.read().decode("utf-8"))
-                text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-                print(f"Successfully generated content using model: {model}")
-                return text
-        except urllib.error.HTTPError as e:
-            error_msg = e.read().decode('utf-8')
-            print(f"Model {model} failed with HTTP {e.code}: {error_msg}")
-            last_error = f"HTTP {e.code}: {error_msg}"
-        except Exception as e:
-            print(f"Model {model} failed with error: {e}")
-            last_error = str(e)
-            
+        
+        for attempt in range(1, max_retries_per_model + 1):
+            req = urllib.request.Request(gemini_url, data=payload, headers={"Content-Type": "application/json"})
+            try:
+                print(f"Attempting model '{model}' (Attempt {attempt}/{max_retries_per_model})...")
+                with urllib.request.urlopen(req) as response:
+                    res_json = json.loads(response.read().decode("utf-8"))
+                    text = res_json["candidates"][0]["content"]["parts"][0]["text"]
+                    print(f"Successfully generated content using model: {model}")
+                    return text
+            except urllib.error.HTTPError as e:
+                error_msg = e.read().decode('utf-8')
+                last_error = f"Model {model} returned HTTP {e.code}: {error_msg}"
+                print(last_error)
+                
+                # Retry on temporary high demand / rate limit (503, 429, 500, 504)
+                if e.code in (503, 429, 500, 504) and attempt < max_retries_per_model:
+                    wait_time = attempt * 5
+                    print(f"Temporary server issue ({e.code}). Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    break  # Move to next model if permanent error (like 404) or retries exhausted
+            except Exception as e:
+                last_error = str(e)
+                print(f"Model {model} failed with error: {e}")
+                break
+
     print(f"CRITICAL ERROR: All Gemini models failed. Last error: {last_error}")
     sys.exit(1)
 
