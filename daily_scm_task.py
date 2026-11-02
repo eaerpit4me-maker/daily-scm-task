@@ -90,6 +90,32 @@ def send_telegram_message(title, content):
     except Exception as e:
         print(f"Telegram error: {e}")
 
+def call_gemini_api(gemini_key, prompt):
+    """Calls Gemini API trying models in order of preference"""
+    models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    last_error = None
+    
+    for model in models:
+        gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
+        payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
+        req = urllib.request.Request(gemini_url, data=payload, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req) as response:
+                res_json = json.loads(response.read().decode("utf-8"))
+                text = res_json["candidates"][0]["content"]["parts"][0]["text"]
+                print(f"Successfully generated content using model: {model}")
+                return text
+        except urllib.error.HTTPError as e:
+            error_msg = e.read().decode('utf-8')
+            print(f"Model {model} failed with HTTP {e.code}: {error_msg}")
+            last_error = f"HTTP {e.code}: {error_msg}"
+        except Exception as e:
+            print(f"Model {model} failed with error: {e}")
+            last_error = str(e)
+            
+    print(f"CRITICAL ERROR: All Gemini models failed. Last error: {last_error}")
+    sys.exit(1)
+
 def main():
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if not gemini_key:
@@ -138,21 +164,7 @@ Create a clean markdown table comparing options across Order Size, Frequency, Ho
 1. [Input Event] -> 2. [Process Action] -> 3. [Output Result]
 """
 
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
-    payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
-    req = urllib.request.Request(gemini_url, data=payload, headers={"Content-Type": "application/json"})
-
-    try:
-        with urllib.request.urlopen(req) as response:
-            res_json = json.loads(response.read().decode("utf-8"))
-            markdown_content = res_json["candidates"][0]["content"]["parts"][0]["text"]
-            print("Successfully received content from Gemini API.")
-    except urllib.error.HTTPError as e:
-        print(f"Gemini API HTTP Error {e.code}: {e.read().decode('utf-8')}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Gemini API Error: {e}")
-        sys.exit(1)
+    markdown_content = call_gemini_api(gemini_key, prompt)
 
     issue_title = f"[Daily SCM Concept] {topic_obj['topic']}"
     issue_body = f"**Source Reference:** {topic_obj['source']}\n\n" + markdown_content
