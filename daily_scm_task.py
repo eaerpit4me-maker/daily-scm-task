@@ -91,8 +91,8 @@ def send_telegram_message(title, content):
         print(f"Telegram error: {e}")
 
 def call_gemini_api(gemini_key, prompt):
-    """Calls Gemini API trying models in order of preference"""
-    models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    """Calls Gemini API trying active supported models in order of preference"""
+    models = ["gemini-3.8-flash", "gemini-2.5-flash"]
     last_error = None
     
     for model in models:
