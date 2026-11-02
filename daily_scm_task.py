@@ -2,6 +2,7 @@ import os
 import json
 import datetime
 import urllib.request
+import urllib.error
 
 SCM_TOPIC_CURRICULUM = [
     {"topic": "The Bullwhip Effect", "source": "MITx MicroMasters & ASCM Dictionary"},
@@ -42,22 +43,26 @@ def create_github_issue(title, body):
     token = os.environ.get("GITHUB_TOKEN")
     
     if not repo or not token:
-        print("GitHub Repository or Token not available.")
+        print("ERROR: GITHUB_REPOSITORY or GITHUB_TOKEN environment variable not set.")
         return False
         
     url = f"https://api.github.com/repos/{repo}/issues"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "DailySCMTaskScript/1.0"
     }
     data = json.dumps({"title": title, "body": body}).encode("utf-8")
     
     req = urllib.request.Request(url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req) as resp:
-            print("GitHub Issue created successfully!")
+            print(f"GitHub Issue created successfully! HTTP {resp.status}")
             return True
+    except urllib.error.HTTPError as e:
+        print(f"Failed to create GitHub Issue: HTTP {e.code} - {e.read().decode('utf-8')}")
+        return False
     except Exception as e:
         print(f"Failed to create GitHub Issue: {e}")
         return False
@@ -87,11 +92,12 @@ def send_telegram_message(title, content):
 def main():
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if not gemini_key:
-        print("ERROR: GEMINI_API_KEY is missing.")
+        print("ERROR: GEMINI_API_KEY is missing from environment variables.")
         return
 
     day_of_year = datetime.datetime.now().timetuple().tm_yday
     topic_obj = SCM_TOPIC_CURRICULUM[(day_of_year - 1) % len(SCM_TOPIC_CURRICULUM)]
+    print(f"Generating content for topic: {topic_obj['topic']}...")
 
     prompt = f"""
 Act as a Senior Supply Chain Technical Specialist.
@@ -130,7 +136,7 @@ Create a clean markdown table comparing options across Order Size, Frequency, Ho
 1. [Input Event] -> 2. [Process Action] -> 3. [Output Result]
 """
 
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
     payload = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode("utf-8")
     req = urllib.request.Request(gemini_url, data=payload, headers={"Content-Type": "application/json"})
 
@@ -138,6 +144,10 @@ Create a clean markdown table comparing options across Order Size, Frequency, Ho
         with urllib.request.urlopen(req) as response:
             res_json = json.loads(response.read().decode("utf-8"))
             markdown_content = res_json["candidates"][0]["content"]["parts"][0]["text"]
+            print("Successfully received content from Gemini API.")
+    except urllib.error.HTTPError as e:
+        print(f"Gemini API HTTP Error {e.code}: {e.read().decode('utf-8')}")
+        return
     except Exception as e:
         print(f"Gemini API Error: {e}")
         return
